@@ -1,0 +1,10 @@
+# merged list, same shape as dump_bookmarks output
+  GitHub | https://github.com/
+  Jira | https://jira.example.com/login
+  Router | http://192.168.1.1/
+  Old Job Post | https://jobs.example.org/posting/2023/123
+  Gone | https://gone.invalid/page
+  Slow | https://slow.example.com/
+  Nope | https://refuses.example.com/
+  Dup | https://github.com/
+  ftp | ftp://files.example.com/

@@ -1,0 +1,19 @@
+{
+   "roots": {
+      "bookmark_bar": {
+         "children": [
+            {"date_added": "13300000000000000", "guid": "b1", "id": "1", "name": "GitHub - Where the world builds software", "type": "url", "url": "https://github.com/"},
+            {"date_added": "13300000000000000", "guid": "b2", "id": "2", "name": "Old Job Post", "type": "url", "url": "https://jobs.example.org/posting/2023/123"},
+            {"date_added": "13300000000000000", "guid": "b3", "id": "3", "name": "News (3)", "type": "url", "url": "https://news.example.net/"}
+         ],
+         "date_added": "13300000000000000", "date_modified": "0", "guid": "bar", "id": "1", "name": "Bookmarks bar", "type": "folder"
+      },
+      "other": {
+         "children": [
+            {"date_added": "13300000000000000", "guid": "b4", "id": "4", "name": "Python Docs again", "type": "url", "url": "https://docs.python.org/3/"}
+         ],
+         "date_added": "13300000000000000", "date_modified": "0", "guid": "other", "id": "2", "name": "Other bookmarks", "type": "folder"
+      }
+   },
+   "version": 1
+}

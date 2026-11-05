@@ -108,11 +108,12 @@ takes the last field.) Interpret results:
 - `OK` — alive.
 - `AUTH` (401/403/405/429/999) — login wall or bot wall. **Alive.** Keep.
 - `LOCAL` — LAN/localhost/private hostname. **Untestable from outside. Keep.**
-- `TIMEOUT`/`ERR` — uncertain. Keep unless the user says otherwise.
+- `TIMEOUT`/`REFUSED`/`ERR` — uncertain (each is retried once first). Keep unless the user says otherwise.
 - `DEAD` (404/410/DNS failure) — try the **root domain** before deleting:
   users often save login or deep URLs that rot while the site lives. If root
   answers, repair the bookmark to the root (or the nearest working parent
-  path). Only propose deletion when the root is dead too — and let the user
+  path). `ROOT-UNCERTAIN` (root timed out or refused) is not dead: keep.
+  Only propose deletion when the root is dead too — and let the user
   approve the delete list.
 
 ### Phase 6 — Layout menu (numbered priorities)

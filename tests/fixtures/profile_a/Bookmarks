@@ -1,0 +1,26 @@
+{
+   "checksum": "deadbeef",
+   "roots": {
+      "bookmark_bar": {
+         "children": [
+            {"date_added": "13300000000000000", "guid": "a1", "id": "1", "name": "GitHub", "type": "url", "url": "https://github.com/"},
+            {"date_added": "13300000000000000", "guid": "a2", "id": "2", "name": "Work", "type": "folder", "children": [
+               {"date_added": "13300000000000000", "guid": "a3", "id": "3", "name": "Jira - Login", "type": "url", "url": "https://jira.example.com/login"},
+               {"date_added": "13300000000000000", "guid": "a4", "id": "4", "name": "Router", "type": "url", "url": "http://192.168.1.1/"}
+            ]}
+         ],
+         "date_added": "13300000000000000", "date_modified": "0", "guid": "bar", "id": "1", "name": "Bookmarks bar", "type": "folder"
+      },
+      "other": {
+         "children": [
+            {"date_added": "13300000000000000", "guid": "a5", "id": "5", "name": "Python Docs", "type": "url", "url": "https://docs.python.org/3/"}
+         ],
+         "date_added": "13300000000000000", "date_modified": "0", "guid": "other", "id": "2", "name": "Other bookmarks", "type": "folder"
+      },
+      "synced": {
+         "children": [],
+         "date_added": "13300000000000000", "date_modified": "0", "guid": "synced", "id": "3", "name": "Mobile bookmarks", "type": "folder"
+      }
+   },
+   "version": 1
+}

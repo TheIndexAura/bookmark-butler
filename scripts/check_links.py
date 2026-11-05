@@ -9,15 +9,24 @@ Output lines:  STATUS<TAB>URL
   OK n      alive (HTTP 2xx/3xx)
   AUTH n    login/bot wall (401 403 405 429 503 999) -> ALIVE, keep
   LOCAL     LAN / localhost / private host -> untestable, keep
-  TIMEOUT   no answer in time -> uncertain, keep
+  TIMEOUT   no answer in time (after one retry) -> uncertain, keep
+  REFUSED   the host refused/reset the connection (after one retry) -> uncertain, keep
   DEAD n    404/410 or DNS failure -> candidate for root-repair, then review
   ERR msg   other failure -> uncertain, keep
 
+Every request has a timeout (--timeout, default 12s). A TIMEOUT, REFUSED or
+ERR result is retried once (--retries, default 1) before it is reported; HTTP
+answers and hard DNS failures are not retried. A site that refuses is a
+status line like any other - never a crash.
+
 For every DEAD deep link the checker also tests the root domain and appends
-  ROOT-OK <root>   or   ROOT-DEAD
-so the caller can repair instead of delete.
+  ROOT-OK <root>   or   ROOT-DEAD   or   ROOT-UNCERTAIN <status>
+so the caller can repair instead of delete. ROOT-UNCERTAIN means the root
+timed out / refused / errored: do not propose deletion from it.
 """
 import argparse
+import errno
+import http.client
 import ipaddress
 import socket
 import ssl
@@ -62,7 +71,44 @@ def is_local(url):
     return False
 
 
-def fetch(url, timeout=12):
+DEFAULT_TIMEOUT = 12
+DEFAULT_RETRIES = 1
+# socket.gaierror codes that mean "this name does not exist" (hard DNS dead)
+DNS_DEAD_ERRNOS = {socket.EAI_NONAME, getattr(socket, "EAI_NODATA", socket.EAI_NONAME)}
+# reasons that mean "could not reach the host at all" -> REFUSED (keep)
+REFUSED_ERRNOS = {errno.ECONNREFUSED, errno.ECONNRESET, errno.ECONNABORTED,
+                  errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EPIPE}
+RETRYABLE_PREFIXES = ("TIMEOUT", "REFUSED", "ERR")
+
+
+def _classify_exception(e):
+    """Map a low-level failure to a status string. Never raises."""
+    if isinstance(e, urllib.error.URLError) and not isinstance(e, urllib.error.HTTPError):
+        e = e.reason if isinstance(e.reason, BaseException) else e
+    if isinstance(e, (socket.timeout, TimeoutError)):
+        return "TIMEOUT"
+    if isinstance(e, socket.gaierror):
+        if e.errno in DNS_DEAD_ERRNOS:
+            return "DEAD DNS"
+        return f"ERR dns {str(e)[:36]}"  # e.g. EAI_AGAIN: temporary, not dead
+    if isinstance(e, (ConnectionRefusedError, ConnectionResetError, ConnectionAbortedError,
+                      http.client.RemoteDisconnected)):
+        return "REFUSED"
+    if isinstance(e, OSError) and e.errno in REFUSED_ERRNOS:
+        return "REFUSED"
+    msg = str(e)
+    if isinstance(e, urllib.error.URLError):
+        msg = str(e.reason)
+        if any(k in msg for k in ("getaddrinfo", "Name or service", "nodename")):
+            return "DEAD DNS"
+        if "refused" in msg.lower() or "reset by peer" in msg.lower():
+            return "REFUSED"
+        if "timed out" in msg.lower():
+            return "TIMEOUT"
+    return f"ERR {msg[:40]}"
+
+
+def fetch_once(url, timeout=DEFAULT_TIMEOUT):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=CTX) as r:
@@ -73,29 +119,39 @@ def fetch(url, timeout=12):
         if e.code in DEAD_CODES:
             return f"DEAD {e.code}"
         return f"OK {e.code}"  # other codes = server answered = alive
-    except (socket.timeout, TimeoutError):
-        return "TIMEOUT"
-    except urllib.error.URLError as e:
-        msg = str(e.reason)
-        if any(k in msg for k in ("getaddrinfo", "Name or service", "nodename")):
-            return "DEAD DNS"
-        return f"ERR {msg[:40]}"
     except Exception as e:  # noqa: BLE001 - report, don't crash the batch
-        return f"ERR {str(e)[:40]}"
+        return _classify_exception(e)
 
 
-def check(url):
+def fetch(url, timeout=DEFAULT_TIMEOUT, retries=DEFAULT_RETRIES):
+    """Fetch with a timeout; retry network-level failures `retries` times.
+    HTTP answers (OK/AUTH/DEAD n) and hard DNS failures are final on first try."""
+    status = fetch_once(url, timeout=timeout)
+    for _ in range(max(0, retries)):
+        if not status.startswith(RETRYABLE_PREFIXES):
+            break
+        status = fetch_once(url, timeout=timeout)
+    return status
+
+
+def check(url, timeout=DEFAULT_TIMEOUT, retries=DEFAULT_RETRIES):
     if not url.startswith(("http://", "https://")):
         return url, "SKIP non-http"
     if is_local(url):
         return url, "LOCAL"
-    status = fetch(url)
+    status = fetch(url, timeout=timeout, retries=retries)
     if status.startswith("DEAD"):
         s = urlsplit(url)
         root = f"{s.scheme}://{s.netloc}/"
         if root != url:
-            root_status = fetch(root)
-            tag = f"ROOT-OK {root}" if root_status.split()[0] in ("OK", "AUTH") else "ROOT-DEAD"
+            root_status = fetch(root, timeout=timeout, retries=retries)
+            kind = root_status.split()[0]
+            if kind in ("OK", "AUTH"):
+                tag = f"ROOT-OK {root}"
+            elif kind == "DEAD":
+                tag = "ROOT-DEAD"
+            else:  # TIMEOUT / REFUSED / ERR: unknown, never a delete candidate
+                tag = f"ROOT-UNCERTAIN {root_status}"
             status = f"{status}\t{tag}"
     return url, status
 
@@ -105,6 +161,10 @@ def main():
     ap.add_argument("--in", dest="infile", required=True)
     ap.add_argument("--out", dest="outfile", required=True)
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
+                    help="seconds to wait per request (default 12)")
+    ap.add_argument("--retries", type=int, default=DEFAULT_RETRIES,
+                    help="extra attempts after a network-level failure (default 1)")
     args = ap.parse_args()
 
     urls = []
@@ -117,7 +177,11 @@ def main():
             if line.startswith(("http://", "https://")) and line not in urls:
                 urls.append(line)
 
-    results = list(ThreadPoolExecutor(max_workers=args.workers).map(check, urls))
+    def run(url):
+        return check(url, timeout=args.timeout, retries=args.retries)
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        results = list(pool.map(run, urls))
     with open(args.outfile, "w", encoding="utf-8") as f:
         for url, status in results:
             f.write(f"{status}\t{url}\n")
